@@ -184,21 +184,21 @@ async def send_push(callback: CallbackQuery, state: FSMContext):
     # картинка, текст и файл должны отправляться единым целым как в предпросмотре
     if photo ==  None and file==None:
         for i in await get_all_tg_users():
-            try: await bot.send_message(i[0], f"{text}")
+            try: await bot.send_message(i, f"{text}")
             except: pass
     elif photo != None and file == None:
         for i in await get_all_tg_users():
-            try: await bot.send_photo(i[0], photo, caption=text)
+            try: await bot.send_photo(i, photo, caption=text)
             except: pass
     elif photo == None and file != None:
         for i in await get_all_tg_users():
-            try: await bot.send_document(i[0], file, caption=text)
+            try: await bot.send_document(i, file, caption=text)
             except: pass
     else:
         for i in await get_all_tg_users():
             try:
-                await bot.send_photo(i[0], photo, caption=text)
-                await bot.send_document(i[0], file)
+                await bot.send_photo(i, photo, caption=text)
+                await bot.send_document(i, file)
             except: pass
     await state.reset_state()
     await callback.answer("Рассылка отправлена!")
