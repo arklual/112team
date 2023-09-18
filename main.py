@@ -91,6 +91,9 @@ async def competition(message: Message, state: FSMContext):
     await state.set_state(IncreaseBalanceState.player_id)
 
 async def pushText(message: Message, state: FSMContext):
+    if str(message.from_user.id) not in ADMINS_ID:
+        await message.answer('Вы не участник сообщества 11-2 team!')
+        return
     await message.answer("Введите текст для пуша")
     await state.set_state(PushState.input_for_push)
     await state.update_data( text = None )
