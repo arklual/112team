@@ -12,6 +12,19 @@ from io import BytesIO
 import asyncio
 import aioschedule
 
+class PushState(StatesGroup):
+    input_for_push = State()
+    input_file = State()
+    input_pic = State()
+    wait = State()
+    preview = State()
+
+class EditPush(StatesGroup):
+    edit_text = State()
+    edit_file = State()
+    edit_pic = State()
+    wait = State()
+
 words = [
     'герой',
     'школа', 
@@ -59,6 +72,16 @@ async def start(message: Message, state: FSMContext):
 Твой баланс: {user["balance"]} ХБ
 Продолжай в том же духе!''')
 
+@dp.message_handler(commands=['id'])
+async def start(message: Message, state: FSMContext):
+    if str(message.from_user.id) in ADMINS_ID:
+        await message.answer('Добрый день, админ!')
+    else:
+        user = await get_player(message.from_user.id)
+        await message.answer(f'''
+Твой номер игрока: {user["id"]}
+''')
+
 @dp.message_handler(commands=['comp'])
 async def competition(message: Message, state: FSMContext):
     if str(message.from_user.id) not in ADMINS_ID:
@@ -66,6 +89,146 @@ async def competition(message: Message, state: FSMContext):
         return
     await message.answer('Введите номер игрока:')
     await state.set_state(IncreaseBalanceState.player_id)
+
+async def pushText(message: Message, state: FSMContext):
+    await message.answer("Введите текст для пуша")
+    await state.set_state(PushState.input_for_push)
+    await state.update_data( text = None )
+    await state.update_data( photo = None )
+    await state.update_data( file = None )
+
+async def pre_push(message: Message, state: FSMContext):
+    data = await state.get_data()
+    text = data.get( 'text' )
+    photo  = data.get( 'photo' )
+    file = data.get( 'file' )
+
+    kb = InlineKeyboardMarkup()
+
+    if photo == None:
+        kb.add(InlineKeyboardButton('Добавить фото', callback_data="add_pic"))
+    if file == None:
+        kb.add(InlineKeyboardButton('Добавить файл', callback_data="add_file"))
+    if photo != None:
+        kb.add(InlineKeyboardButton('Удалить фото', callback_data="del_pic"))
+    if file != None:
+        kb.add(InlineKeyboardButton('Удалить файл', callback_data="del_file"))
+
+    kb.add(InlineKeyboardButton('Отменить рассылку', callback_data="cancel_push"))
+    kb.add(InlineKeyboardButton('Отправить рассылку', callback_data="send_push"))
+    
+    print( photo )
+    await message.answer(f"Предварительный вид сообщения\n")
+    if photo ==  None and file==None:
+        await message.answer(f"{text}", reply_markup=kb)
+    elif photo != None and file == None:
+        await bot.send_photo(message.chat.id, photo, caption=text, reply_markup=kb)
+    elif photo == None and file != None:
+        await bot.send_document(message.chat.id, file, caption=text, reply_markup=kb)
+    else:
+        await bot.send_photo(message.chat.id, photo, caption=text)
+        await bot.send_document(message.chat.id, file, reply_markup=kb)
+        
+    
+
+async def getText(message: Message, state: FSMContext):
+    await state.update_data(text = message.text)
+    await pre_push( message, state )
+    await state.set_state(PushState.preview)
+
+
+
+async def add_pic(callback: CallbackQuery, state: FSMContext):
+    await callback.answer('Отправьте картинку.', show_alert=True)
+    await state.set_state(PushState.input_pic)
+
+async def add_file(callback: CallbackQuery, state: FSMContext):
+    await callback.answer('Отправьте картинку.', show_alert=True)
+    await state.set_state(PushState.input_file)
+
+
+async def pushPic(message: Message, state: FSMContext):
+    if message.photo:
+        await state.update_data(photo = message.photo[-1].file_id)
+        await pre_push( message, state )
+        await state.set_state(PushState.preview)
+    else:
+        await message.answer("Ошибка данных. Отправьте картинку как фотографию")
+
+async def pushFile(message: Message, state: FSMContext):
+    if message.document:
+        await state.update_data(file = message.document.file_id)
+        await pre_push( message, state )
+        await state.set_state(PushState.preview)
+    else:
+        await message.answer("Ошибка данных. Отправьте файл")
+ 
+
+async def cancel_push(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.reset_state()
+    await state.reset_data()
+    await state.reset_state()
+    await callback.message.answer("Рассылка отменена")
+
+async def send_push(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    photo = data.get('photo')
+    file = data.get('file')
+    text = data.get('text')
+
+    # используйте конструкцию и предварительного просмотра
+    # картинка, текст и файл должны отправляться единым целым как в предпросмотре
+    if photo ==  None and file==None:
+        for i in await get_all_tg_users():
+            try: await bot.send_message(i[0], f"{text}")
+            except: pass
+    elif photo != None and file == None:
+        for i in await get_all_tg_users():
+            try: await bot.send_photo(i[0], photo, caption=text)
+            except: pass
+    elif photo == None and file != None:
+        for i in await get_all_tg_users():
+            try: await bot.send_document(i[0], file, caption=text)
+            except: pass
+    else:
+        for i in await get_all_tg_users():
+            try:
+                await bot.send_photo(i[0], photo, caption=text)
+                await bot.send_document(i[0], file)
+            except: pass
+    await state.reset_state()
+    await callback.answer("Рассылка отправлена!")
+
+async def view_push(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    photo = data.get('photo')
+    file = data.get('file')
+    text = data.get('text')
+    if photo:
+        await bot.send_photo(callback.from_user.id, photo, caption=text)
+    if file:
+        await bot.send_document(callback.from_user.id, file, caption=text)
+    if not file and not photo:
+        await bot.send_message(callback.from_user.id, text)
+
+async def del_photo(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    photo = data.get('photo')
+    if photo != None:
+        await state.update_data(photo = None)
+    await callback.answer('Фото удалено')
+    await pre_push(callback.message, state)
+
+async def del_file(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    file = data.get('file')
+    if file != None:
+        await state.update_data(file = None)
+    await callback.answer('Файл удален')
+    await pre_push(callback.message, state)
+
+
 
 @dp.message_handler(state=IncreaseBalanceState.player_id)
 async def process_player_id(message: Message, state: FSMContext):
@@ -87,7 +250,7 @@ async def process_balance(message: Message, state: FSMContext):
 
 @dp.message_handler(commands=['play'])
 async def play(message: Message, state: FSMContext):
-    if datetime.date.today().weekday() > 10:
+    if datetime.date.today().weekday() > 4:
         await message.answer('Акция закончилась, спасибо, что были с нами!')
         return
     if str(message.from_user.id) in ADMINS_ID:
@@ -96,6 +259,7 @@ async def play(message: Message, state: FSMContext):
     if not await can_play(message.from_user.id):
         await message.answer('У вас закончились все попопытки на сегодня, приходите завтра!')
         return
+    await message.answer('Правила очень просты: игроку дается пять попыток угадать слово. Любое слово должно быть введено в верхней строке. Если буква угадана правильно и находится в правильном месте, она будет выделена зеленым цветом, если буква есть в слове, но не в том месте, то желтым, а если буквы нет в слове, останется серым.')
     await message.answer('Отгадайте слово!')
     await state.set_state(GameState.word)
 
@@ -116,8 +280,8 @@ async def process_word(message: Message, state: FSMContext):
     await bot.send_photo(message.from_user.id, photo=bio)
     if result['is_correct']:
         await update_attemps(player['id'], 0)
-        await increase_balance(player['id'], 3)
-        await message.answer('Вы отгадали слово, вам начислено 3 ХБ! Спасибо за игру! Возращайтесь завтра!')
+        await increase_balance(player['id'], 50)
+        await message.answer('Вы отгадали слово, вам начислено 50 ХБ! Спасибо за игру! Возращайтесь завтра!')
         await state.finish()
     else:
         await decrement_attemps(player_id=player['id'])
@@ -230,6 +394,15 @@ async def reset_attemps():
     async with aiofiles.open('players.json', 'w', encoding='utf-8') as fp:
         await fp.write(json.dumps(data, ensure_ascii=False))
 
+async def get_all_tg_users():
+    data = []
+    users = []
+    async with aiofiles.open('players.json', 'r', encoding='utf-8') as fp:
+        data = json.loads(await fp.read())
+    for n, i in enumerate(data):
+        users.append(int(i['user_id']))
+            
+
 async def sender():
     data = []
     async with aiofiles.open('players.json', 'r', encoding='utf-8') as fp:
@@ -246,6 +419,20 @@ async def scheduler():
         await asyncio.sleep(1)
 
 async def on_start(_):
+    dp.register_message_handler(pushText, lambda message: message.text == '/push')
+    dp.register_message_handler(getText, state=PushState.input_for_push, content_types=ContentType.ANY)
+    dp.register_message_handler(pushFile, state=PushState.input_file, content_types=ContentType.ANY)
+    dp.register_message_handler(pushPic, state=PushState.input_pic, content_types=ContentType.ANY)
+    dp.register_callback_query_handler(cancel_push, lambda callback: callback.data == 'cancel_push', state=PushState.wait)
+    dp.register_callback_query_handler(send_push, lambda callback: callback.data == 'send_push', state=PushState.preview)
+    dp.register_callback_query_handler(view_push, lambda callback: callback.data == 'view_push', state=PushState.wait)
+
+    dp.register_callback_query_handler(cancel_push, lambda callback: callback.data == 'cancel_push', state=PushState.preview)
+    dp.register_callback_query_handler(add_pic, lambda callback: callback.data == 'add_pic', state=PushState.preview)
+    dp.register_callback_query_handler(add_file, lambda callback: callback.data == 'add_file', state=PushState.preview)
+
+    dp.register_callback_query_handler(del_photo, lambda callback: callback.data == 'del_pic', state=PushState.preview)
+    dp.register_callback_query_handler(del_file, lambda callback: callback.data == 'del_file', state=PushState.preview)
     asyncio.create_task(scheduler())
 
 executor.start_polling(dp, skip_updates=True, on_startup=on_start)
