@@ -404,6 +404,7 @@ async def get_all_tg_users():
         data = json.loads(await fp.read())
     for n, i in enumerate(data):
         users.append(int(i['user_id']))
+    return users
             
 
 async def sender():
