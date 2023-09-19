@@ -396,6 +396,8 @@ async def reset_attemps():
         data[n]['attemps'] = 5
     async with aiofiles.open('players.json', 'w', encoding='utf-8') as fp:
         await fp.write(json.dumps(data, ensure_ascii=False))
+    global last_images
+    last_images = {}
 
 async def get_all_tg_users():
     data = []
